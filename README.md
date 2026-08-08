@@ -160,7 +160,7 @@ GRANT SELECT ON SEQUENCES TO readonly_role;
 ## 7. Create a Real User and Assign the Role
 
 ```sql
-CREATE USER adam WITH PASSWORD 'postgres123';
+CREATE USER adam WITH PASSWORD '******';
 GRANT readonly_role TO adam;
 ```
 
