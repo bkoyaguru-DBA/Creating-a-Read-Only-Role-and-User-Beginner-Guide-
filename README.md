@@ -308,7 +308,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 GRANT SELECT ON SEQUENCES TO readonly_role;
 
 -- 4. User
-CREATE USER adam WITH PASSWORD 'postgres123';
+CREATE USER adam WITH PASSWORD '******';
 GRANT readonly_role TO adam;
 ```
 
@@ -318,8 +318,6 @@ GRANT readonly_role TO adam;
 
 Be direct with yourself about the gaps in this setup:
 
-- **Password is in plain text in the script.** Use a secrets manager or
-  prompt for password instead of hardcoding it.
 - **`ALTER DEFAULT PRIVILEGES` only covers `public` schema here.** If new
   tables get created in `sales` or `accounting` later, you need the same
   `ALTER DEFAULT PRIVILEGES` command run for those schemas too.
