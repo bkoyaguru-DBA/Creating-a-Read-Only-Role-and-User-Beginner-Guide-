@@ -1,7 +1,6 @@
 # Creating-a-Read-Only-Role-and-User-Beginner-Guide-
 This guide walks through creating a database, adding schemas and tables, and setting up a **read-only role** that a real user can be assigned to.
 
-
 It also includes the errors you will likely hit along the way, and *why*
 they happen. Understanding the errors is more useful than memorizing the
 commands, because it teaches you how Postgres permissions actually work.
@@ -104,7 +103,11 @@ Check it exists:
 
 ---
 
-## 6. Grant Permissions (Step by Step)
+## 6. Grant the First Round of Permissions
+
+This is the round of grants that was made **before** the first login
+attempt. It looks complete, but it's missing something — that's the point.
+Section 9 shows what breaks and why.
 
 ### 6.1 Allow connecting to the database
 
@@ -112,24 +115,16 @@ Check it exists:
 GRANT CONNECT ON DATABASE myuser TO readonly_role;
 ```
 
-### 6.2 Allow using schemas
-
-By default, `public` schema access is common, but **custom schemas like
-`sales` and `accounting` need their own explicit grant**. This is the step
-most beginners forget.
+### 6.2 Allow using the `public` schema
 
 ```sql
 GRANT USAGE ON SCHEMA public TO readonly_role;
-GRANT USAGE ON SCHEMA sales TO readonly_role;
-GRANT USAGE ON SCHEMA accounting TO readonly_role;
 ```
 
-### 6.3 Allow reading tables in each schema
+### 6.3 Allow reading tables in `public`
 
 ```sql
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly_role;
-GRANT SELECT ON ALL TABLES IN SCHEMA sales TO readonly_role;
-GRANT SELECT ON ALL TABLES IN SCHEMA accounting TO readonly_role;
 ```
 
 ### 6.4 Allow reading sequences (needed for SERIAL/auto-increment columns)
@@ -138,10 +133,11 @@ GRANT SELECT ON ALL TABLES IN SCHEMA accounting TO readonly_role;
 GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO readonly_role;
 ```
 
-### 6.5 Auto-apply SELECT to future tables
+### 6.5 Auto-apply SELECT to future tables in `public`
 
-Without this, any **new** table created later will NOT be readable by
-`readonly_role` automatically — you'd have to grant it manually every time.
+Without this, any **new** table created later in `public` will NOT be
+readable by `readonly_role` automatically — you'd have to grant it
+manually every time.
 
 ```sql
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
@@ -153,18 +149,41 @@ GRANT SELECT ON SEQUENCES TO readonly_role;
 
 > **Note:** `ALTER DEFAULT PRIVILEGES` only applies to *future* objects
 > created by the same role that ran the command, in that schema. It does
-> not retroactively cover existing tables — that's why step 6.3 is still
-> needed separately.
+> not retroactively cover existing tables.
+
+> **Spot the gap:** none of the grants above mention `sales` or
+> `accounting` — the two schemas that actually hold your data. This is a
+> deliberate example of the most common beginner mistake. Keep reading.
 
 ---
 
-## 6.6 What Actually Happened, Step by Step (Real Errors)
+## 7. Create a Real User and Assign the Role
 
-This is what really happened while setting this up, before the schema
-grants were added. Seeing the raw errors — not just a summary — makes it
-obvious *why* each grant was needed.
+```sql
+CREATE USER adam WITH PASSWORD 'postgres123';
+GRANT readonly_role TO adam;
+```
 
-**Attempt 1: Only granted `public` schema access. Tried querying `sales`:**
+> Use a strong password in real environments. This example password is for
+> local testing only.
+
+---
+
+## 8. Log In as the New User
+
+```bash
+psql -U adam -d myuser -W -p 5432
+```
+
+---
+
+## 9. What Actually Happened: Real Errors, in Order
+
+This is the real sequence of errors hit when `adam` tried to query data,
+using only the grants from section 6. Seeing the raw errors — not just a
+summary — makes it obvious *why* each additional grant is needed.
+
+**Attempt 1: Query the `sales` schema:**
 
 ```
 myuser=> select count(*) from sales.employees;
@@ -173,7 +192,7 @@ LINE 1: select count(*) from sales.employees;
                              ^
 ```
 
-**Same attempt, tried `accounting` too:**
+**Same result querying `accounting`:**
 
 ```
 myuser=> select count(*) from accounting.products;
@@ -228,41 +247,13 @@ That progression is your checklist. If you see "schema" in the error, fix
 
 ---
 
-## 7. Create a Real User and Assign the Role
-
-```sql
-CREATE USER adam WITH PASSWORD 'postgres123';
-GRANT readonly_role TO adam;
-```
-
-> Use a strong password in real environments. This example password is for
-> local testing only.
-
----
-
-## 8. Test the User
-
-Log in as the new user:
-
-```bash
-psql -U adam -d myuser -W -p 5432
-```
-
-Run a query:
-
-```sql
-SELECT count(*) FROM sales.employees;
-```
-
----
-
-## 9. Common Errors and What They Actually Mean
+## 10. Common Errors and What They Actually Mean
 
 | Error | Cause | Fix |
 |---|---|---|
 | `permission denied for schema sales` | User can connect to the DB, but has no USAGE grant on that schema | `GRANT USAGE ON SCHEMA sales TO readonly_role;` |
 | `permission denied for table products` | User can access the schema, but has no SELECT grant on tables inside it | `GRANT SELECT ON ALL TABLES IN SCHEMA accounting TO readonly_role;` |
-| Works on old tables, fails on new ones | `ALTER DEFAULT PRIVILEGES` was not set | Run the `ALTER DEFAULT PRIVILEGES` command in section 6.5 |
+| Works on old tables, fails on new ones | `ALTER DEFAULT PRIVILEGES` was not set for that schema | Run `ALTER DEFAULT PRIVILEGES` for that specific schema (see section 6.5) |
 
 **Key lesson:** Postgres errors tell you exactly which layer is missing —
 schema-level or table-level. Read the error message literally; it's not
@@ -270,7 +261,7 @@ vague.
 
 ---
 
-## 10. Final Working Result
+## 11. Final Working Result
 
 ```
 myuser=> SELECT count(*) FROM accounting.products;
@@ -282,7 +273,10 @@ myuser=> SELECT count(*) FROM accounting.products;
 
 ---
 
-## 11. Quick Reference: Full Working Script
+## 12. Quick Reference: Full Working Script (All Fixes Included)
+
+This is the complete, corrected script — including the `sales` and
+`accounting` grants that were missing in the first pass.
 
 ```sql
 -- 1. Database & schemas
@@ -320,7 +314,7 @@ GRANT readonly_role TO adam;
 
 ---
 
-## 12. Things to Improve Before Using This in Production
+## 13. Things to Improve Before Using This in Production
 
 Be direct with yourself about the gaps in this setup:
 
